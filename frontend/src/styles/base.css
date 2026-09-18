@@ -156,6 +156,75 @@ body {
   color: #dc2626;
 }
 
+.page-heading-with-action {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.documents-layout {
+  margin-top: 20px;
+}
+
+.documents-list-column {
+  margin-top: 20px;
+}
+
+.card-title {
+  font-weight: 600;
+}
+
+.muted-text {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.file-input {
+  display: none;
+}
+
+.upload-dropzone {
+  padding: 28px 12px;
+  text-align: center;
+  border: 1px dashed #a8b4c8;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.upload-dropzone:hover,
+.upload-dropzone:focus-visible {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.upload-icon {
+  margin-bottom: 12px;
+  color: #2563eb;
+  font-size: 34px;
+}
+
+.selected-file {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.selected-file span {
+  color: #667085;
+}
+
+.upload-submit {
+  width: 100%;
+  margin-top: 16px;
+}
+
 @media (max-width: 720px) {
   .sidebar {
     width: 64px !important;
@@ -182,10 +251,18 @@ body {
     padding-right: 20px;
     padding-left: 20px;
   }
+
+  .page-heading-with-action {
+    align-items: flex-start;
+  }
 }
 
 @media (min-width: 1200px) {
   .health-column {
+    margin-top: 0;
+  }
+
+  .documents-list-column {
     margin-top: 0;
   }
 }

@@ -17,6 +17,7 @@ from app.models import RequestLog
 from app.routers.admin import router as admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
+from app.routers.users import router as users_router
 from app.schemas import HealthResponse
 from app.services.redaction import redact_text
 from app.services.vector_store import VectorStore
@@ -41,6 +42,7 @@ app = FastAPI(
         "除健康检查外，所有业务接口均需要 X-API-Key。"
     ),
     openapi_tags=[
+        {"name": "users", "description": "当前 API Key 所属用户的身份信息。"},
         {"name": "files", "description": "用户自己的文档上传、查询和删除。"},
         {"name": "chat", "description": "用户自己的会话、消息历史和知识库问答。"},
         {"name": "admin", "description": "仅管理员可访问的脱敏审计记录。"},
@@ -51,6 +53,7 @@ app = FastAPI(
 app.include_router(files_router)
 app.include_router(chat_router)
 app.include_router(admin_router)
+app.include_router(users_router)
 
 
 @app.middleware("http")

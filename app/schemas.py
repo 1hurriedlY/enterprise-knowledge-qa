@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
-from app.domain import Confidence, DocumentStatus, Intent, MessageRole, ToolCallStatus
+from app.domain import Confidence, DocumentStatus, Intent, MessageRole, ToolCallStatus, UserRole
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 OrderId = Annotated[
@@ -20,6 +20,13 @@ OrderId = Annotated[
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class CurrentUserResponse(StrictModel):
+    user_id: uuid.UUID
+    name: str
+    email: str
+    role: UserRole
 
 
 class DocumentUploadResponse(StrictModel):
