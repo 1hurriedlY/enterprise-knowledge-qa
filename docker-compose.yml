@@ -23,6 +23,16 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       qdrant: {condition: service_started}
+  web:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
   postgres:
     image: postgres:16-alpine
     environment:
