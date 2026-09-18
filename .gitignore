@@ -6,3 +6,5 @@ __pycache__/
 data/uploads/
 .venv-*.log
 .venv-*.err
+frontend/node_modules/
+frontend/dist/
