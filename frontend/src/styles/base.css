@@ -91,6 +91,71 @@ body {
   font-size: 14px;
 }
 
+.page-heading {
+  margin-bottom: 24px;
+}
+
+.page-heading h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.page-heading p {
+  margin: 0;
+  color: #667085;
+}
+
+.card-header,
+.action-row,
+.health-summary {
+  display: flex;
+  align-items: center;
+}
+
+.card-header {
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.api-key-form {
+  margin-top: 20px;
+}
+
+.action-row {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.result-alert {
+  margin-top: 20px;
+}
+
+.health-column {
+  margin-top: 20px;
+}
+
+.health-summary {
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.health-summary strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.health-details {
+  margin-top: 12px;
+}
+
+.is-ok {
+  color: #16a34a;
+}
+
+.is-error {
+  color: #dc2626;
+}
+
 @media (max-width: 720px) {
   .sidebar {
     width: 64px !important;
@@ -116,5 +181,11 @@ body {
   .main-content {
     padding-right: 20px;
     padding-left: 20px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .health-column {
+    margin-top: 0;
   }
 }
