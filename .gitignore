@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.cache/
+data/uploads/
+.venv-*.log
+.venv-*.err
