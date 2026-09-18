@@ -100,6 +100,18 @@ class MessageListResponse(StrictModel):
     messages: list[MessageResponse]
 
 
+class AdminConversationResponse(StrictModel):
+    conversation_id: uuid.UUID
+    user_id: uuid.UUID
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminConversationListResponse(StrictModel):
+    conversations: list[AdminConversationResponse]
+
+
 class HealthResponse(StrictModel):
     status: Literal["ok", "degraded"]
     app: Literal["ok"]

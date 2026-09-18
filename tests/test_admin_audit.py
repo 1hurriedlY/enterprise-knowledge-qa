@@ -6,17 +6,22 @@ import pytest
 from fastapi import HTTPException
 
 from app.domain import ToolCallStatus, UserRole
-from app.models import RequestLog, ToolCall, User
-from app.routers.admin import list_request_logs, list_tool_calls
+from app.models import Conversation, RequestLog, ToolCall, User
+from app.routers.admin import list_conversations, list_request_logs, list_tool_calls
 from app.services.auth import admin_user
+from app.services.redaction import redact_json, redact_text
 
 
 class FakeAuditSession:
-    def __init__(self, records: list[object]) -> None:
+    def __init__(self, records: list[object], get_value: object | None = None) -> None:
         self.records = records
+        self.get_value = get_value
 
     async def scalars(self, _: object) -> SimpleNamespace:
         return SimpleNamespace(all=lambda: self.records)
+
+    async def get(self, _: object, __: object) -> object | None:
+        return self.get_value
 
 
 def _admin() -> User:
@@ -72,3 +77,34 @@ async def test_non_admin_is_denied_before_audit_query() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await admin_user(user)
     assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_can_list_conversations_from_every_user() -> None:
+    now = datetime.now(UTC)
+    conversation = Conversation(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        title="跨用户审计",
+        created_at=now,
+        updated_at=now,
+    )
+
+    response = await list_conversations(
+        limit=50, _=_admin(), session=FakeAuditSession([conversation])  # type: ignore[arg-type]
+    )
+
+    assert response.conversations[0].conversation_id == conversation.id
+    assert response.conversations[0].user_id == conversation.user_id
+
+
+def test_bearer_token_is_fully_redacted_after_authorization_label() -> None:
+    value = redact_text("Authorization: Bearer arbitrary-token-123456")
+    assert value is not None
+    assert "arbitrary-token" not in value
+    assert "[REDACTED]" in value
+
+
+def test_nested_tool_payload_is_redacted_before_persistence() -> None:
+    payload = redact_json({"context": {"authorization": "Bearer arbitrary-token-123456"}})
+    assert payload == {"context": {"authorization": "[REDACTED]"}}

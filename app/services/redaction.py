@@ -15,8 +15,10 @@ def redact_text(value: str | None) -> str | None:
     """Remove common secret representations while retaining useful audit context."""
     if value is None:
         return None
-    redacted = _NAMED_SECRET.sub(r"\1\2[REDACTED]", value)
-    redacted = _BEARER_TOKEN.sub(r"\1 [REDACTED]", redacted)
+    # Redact a standalone Bearer value first. Otherwise the named-secret
+    # pattern below can consume only the word "Bearer" and leave its token.
+    redacted = _BEARER_TOKEN.sub(r"\1 [REDACTED]", value)
+    redacted = _NAMED_SECRET.sub(r"\1\2[REDACTED]", redacted)
     return _KEY_LIKE_VALUE.sub("[REDACTED]", redacted)
 
 

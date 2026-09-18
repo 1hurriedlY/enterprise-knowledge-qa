@@ -39,7 +39,7 @@ from app.schemas import (
     TransferToHumanResult,
 )
 from app.services.llm import LlmClient, LlmOutputError, compact_json, render_history
-from app.services.redaction import redact_text
+from app.services.redaction import redact_json, redact_text
 from app.services.tools import query_logistics, query_order, transfer_to_human
 from app.services.vector_store import VectorStore
 
@@ -234,8 +234,8 @@ async def _tool_answer(
             conversation_id=conversation_id,
             message_id=message_id,
             tool_name=expected,
-            tool_input=jsonable_encoder(arguments),
-            tool_output=tool_output,
+            tool_input=redact_json(jsonable_encoder(arguments)),
+            tool_output=redact_json(tool_output),
             status=status,
             error_message=error_message,
             latency_ms=int((time.perf_counter() - started) * 1000),

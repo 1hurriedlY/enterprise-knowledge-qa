@@ -4,6 +4,15 @@
 
 架构与安全边界见 [架构文档](docs/architecture.md)。
 
+## 功能与技术栈
+
+- 文档：异步上传、Markdown / TXT / PDF 解析、清洗、标题优先切片与向量删除同步。
+- 问答：历史改写、意图识别、Qdrant 用户隔离检索、严格引用与安全拒答。
+- 工具：模拟订单、物流、转人工工单，以及工具超时与失败处理。
+- 审计：请求、引用和工具调用记录；管理员只读查询与敏感信息脱敏。
+
+技术栈：Python 3.12、FastAPI、SQLAlchemy Async、Alembic、PostgreSQL、Redis + ARQ、Qdrant、Docker Compose、OpenAI 兼容 LLM / Embedding 接口。
+
 ## 快速启动
 
 1. 复制 `.env.example` 为 `.env`，填写云百炼兼容接口的 `LLM_API_KEY` 和本地 `DEMO_API_KEY`。
@@ -11,6 +20,20 @@
 3. 打开 [Swagger UI](http://localhost:8000/docs)，或请求 [健康检查](http://localhost:8000/health)。
 
 Docker Compose 会启动 API、异步 Worker、PostgreSQL、Redis 和 Qdrant。首次启动会创建演示管理员、API Key 对应身份以及订单 `12345` 的模拟数据。
+
+## 环境变量
+
+| 变量 | 说明 |
+| --- | --- |
+| `LLM_BASE_URL` / `LLM_API_KEY` | OpenAI 兼容的模型服务地址和密钥 |
+| `CHAT_MODEL` / `EMBEDDING_MODEL` | 聊天与向量模型名称 |
+| `EMBEDDING_DIMENSION` | Embedding 向量维度，须和模型匹配 |
+| `DEMO_API_KEY` | 本地演示身份的长随机 API Key |
+| `DATABASE_URL` / `REDIS_URL` / `QDRANT_URL` | Compose 内部依赖连接地址 |
+| `MAX_UPLOAD_BYTES` | 单个文件上限，默认 10 MB |
+| `RETRIEVAL_SCORE_THRESHOLD` | 检索最低相似度分数，默认 0.30 |
+
+完整模板见 `.env.example`；不要将 `.env` 或任何真实密钥提交到 Git。
 
 ## 身份与安全
 
@@ -25,11 +48,34 @@ Docker Compose 会启动 API、异步 Worker、PostgreSQL、Redis 和 Qdrant。�
 | 上传 / 管理文档 | `POST /api/v1/files/upload`、`GET /api/v1/files`、`DELETE /api/v1/files/{document_id}` |
 | 创建会话与问答 | `POST /api/v1/conversations`、`POST /api/v1/chat` |
 | 查看消息历史 | `GET /api/v1/conversations/{conversation_id}/messages` |
+| 管理员会话与消息记录 | `GET /api/v1/admin/conversations`、`GET /api/v1/admin/conversations/{conversation_id}/messages` |
 | 管理员请求日志 | `GET /api/v1/admin/logs?limit=50` |
 | 管理员工具记录 | `GET /api/v1/admin/tool-calls?limit=50` |
 | 健康检查 | `GET /health` |
 
 管理员审计输出会对可能出现的 API Key、Bearer Token、密码等文本脱敏。
+
+## 示例请求与响应
+
+创建会话后，以同一用户的 API Key 发送订单问题：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: <your-api-key>" \
+  -d '{"user_id":"<your-user-uuid>","conversation_id":"<conversation-uuid>","query":"我的订单 12345 发货了吗？"}'
+```
+
+成功响应会包含意图和工具审计摘要：
+
+```json
+{
+  "answer": "您的订单 12345 已发货。",
+  "intent": "order_query",
+  "need_human": false,
+  "tool_calls": [{"tool_name": "query_order", "status": "success"}]
+}
+```
 
 ## 开发检查
 
@@ -43,3 +89,19 @@ Windows PowerShell：
 ```
 
 评测场景位于 [evals/cases.json](evals/cases.json)，覆盖上传、RAG、工具、安全和权限的 PRD 验收项。
+
+## 评测结果
+
+当前回归套件有 35 项自动测试，覆盖上传和解析、嵌入缓存、用户隔离检索、RAG 引用与安全拒答、工具调用和超时、管理员权限、审计脱敏及评测集格式。最终容器验收同时检查健康状态、迁移一致性和 OpenAPI 路由。
+
+## 已知问题
+
+- 初级版使用本地卷保存上传原文件、PostgreSQL 模拟订单与物流数据；生产环境应迁移到对象存储和真实业务系统。
+- 评测集当前是版本化验收场景清单；完整的模型质量指标（正确性、来源正确性、幻觉率、完整性）需在稳定业务语料上持续统计。
+- LLM 依赖外部兼容接口，网络与供应商限流会影响端到端响应时间。
+
+## 后续规划
+
+- 接入对象存储、真实订单/物流/工单服务与密钥管理。
+- 将评测集接入自动化执行与质量趋势报告，使用 Bad Case 调整检索阈值和 Prompt。
+- 增加管理员分页筛选、观测指标与生产级限流、告警和备份策略。
