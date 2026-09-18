@@ -112,6 +112,7 @@ class HealthResponse(StrictModel):
 class RequestLogResponse(StrictModel):
     request_id: str
     user_id: uuid.UUID | None
+    conversation_id: uuid.UUID | None
     query: str | None
     intent: str | None
     latency_ms: int
@@ -130,7 +131,9 @@ class ToolCallResponse(StrictModel):
     tool_input: dict[str, Any]
     tool_output: dict[str, Any]
     status: ToolCallStatus
+    error_message: str | None
     latency_ms: int
+    created_at: datetime
 
 
 class ToolCallListResponse(StrictModel):

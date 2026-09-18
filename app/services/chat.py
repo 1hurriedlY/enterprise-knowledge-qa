@@ -39,6 +39,7 @@ from app.schemas import (
     TransferToHumanResult,
 )
 from app.services.llm import LlmClient, LlmOutputError, compact_json, render_history
+from app.services.redaction import redact_text
 from app.services.tools import query_logistics, query_order, transfer_to_human
 from app.services.vector_store import VectorStore
 
@@ -182,14 +183,14 @@ async def _save_log(
             conversation_id=conversation_id,
             path="/api/v1/chat",
             method="POST",
-            query=query,
-            rewritten_query=rewritten_query,
+            query=redact_text(query),
+            rewritten_query=redact_text(rewritten_query),
             intent=intent.value,
             retrieved_chunks=[item.source.model_dump(mode="json") for item in retrieved],
             tool_calls=[item.model_dump(mode="json") for item in tool_summaries],
             latency_ms=int((time.perf_counter() - started) * 1000),
             status_code=status_code,
-            error_message=error_message,
+            error_message=redact_text(error_message),
         )
     )
 

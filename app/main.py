@@ -9,6 +9,7 @@ from sqlalchemy import text
 from app.bootstrap import seed_demo_identity
 from app.config import get_settings
 from app.database import SessionLocal, engine
+from app.routers.admin import router as admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.schemas import HealthResponse
@@ -28,11 +29,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="企业知识库智能客服系统",
     version="0.1.0",
-    description="基于 RAG 与 Tool Calling 的初级企业知识库客服系统。",
+    summary="支持文档入库、RAG 问答与订单工具的企业知识库客服 API。",
+    description=(
+        "基于 FastAPI、PostgreSQL、Redis、Qdrant 和 OpenAI 兼容接口的初级企业知识库客服系统。"
+        "除健康检查外，所有业务接口均需要 X-API-Key。"
+    ),
+    openapi_tags=[
+        {"name": "files", "description": "用户自己的文档上传、查询和删除。"},
+        {"name": "chat", "description": "用户自己的会话、消息历史和知识库问答。"},
+        {"name": "admin", "description": "仅管理员可访问的脱敏审计记录。"},
+        {"name": "system", "description": "服务依赖健康状态。"},
+    ],
     lifespan=lifespan,
 )
 app.include_router(files_router)
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
