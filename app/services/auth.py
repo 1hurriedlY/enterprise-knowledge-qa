@@ -1,7 +1,7 @@
 import hashlib
 import uuid
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ def hash_api_key(raw_key: str) -> str:
 
 
 async def current_user(
+    request: Request,
     x_api_key: str = Header(alias="X-API-Key", min_length=16),
     session: AsyncSession = Depends(get_session),
 ) -> User:
@@ -26,6 +27,7 @@ async def current_user(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效的 API Key")
+    request.state.user_id = user.id
     return user
 
 

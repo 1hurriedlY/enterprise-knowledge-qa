@@ -89,6 +89,7 @@ Windows PowerShell：
 ```
 
 评测场景位于 [evals/cases.json](evals/cases.json)，覆盖上传、RAG、工具、安全和权限的 PRD 验收项。
+已发现问题与修复措施见 [Bad Case 分析](docs/bad-case-analysis.md)。
 
 ## 评测结果
 

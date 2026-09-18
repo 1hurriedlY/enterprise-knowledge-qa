@@ -17,10 +17,18 @@ class LlmOutputError(ValueError):
 class LlmClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
         self.client = AsyncOpenAI(
             base_url=str(self.settings.llm_base_url),
             api_key=self.settings.llm_api_key.get_secret_value(),
         )
+
+    def _track_usage(self, response: object) -> None:
+        """Accumulate optional usage fields returned by compatible providers."""
+        usage = getattr(response, "usage", None)
+        self.prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+        self.completion_tokens += getattr(usage, "completion_tokens", 0) or 0
 
     async def structured(self, prompt: str, result_type: type[ModelT]) -> ModelT:
         response = await self.client.chat.completions.create(
@@ -32,6 +40,7 @@ class LlmClient:
                 {"role": "user", "content": prompt},
             ],
         )
+        self._track_usage(response)
         content = response.choices[0].message.content
         if not content:
             raise LlmOutputError("模型未返回内容")
@@ -49,6 +58,7 @@ class LlmClient:
                 {"role": "user", "content": prompt},
             ],
         )
+        self._track_usage(response)
         content = response.choices[0].message.content
         if not content:
             raise LlmOutputError("模型未返回内容")

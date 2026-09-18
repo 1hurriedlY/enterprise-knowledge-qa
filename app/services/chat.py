@@ -175,6 +175,8 @@ async def _save_log(
     started: float,
     status_code: int = 200,
     error_message: str | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
 ) -> None:
     session.add(
         RequestLog(
@@ -188,6 +190,8 @@ async def _save_log(
             intent=intent.value,
             retrieved_chunks=[item.source.model_dump(mode="json") for item in retrieved],
             tool_calls=[item.model_dump(mode="json") for item in tool_summaries],
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             latency_ms=int((time.perf_counter() - started) * 1000),
             status_code=status_code,
             error_message=redact_text(error_message),
@@ -371,6 +375,8 @@ async def answer_chat(
                     [],
                     tool_summaries,
                     started,
+                    prompt_tokens=llm.prompt_tokens,
+                    completion_tokens=llm.completion_tokens,
                 )
                 await session.commit()
                 return ChatResponse(
@@ -422,6 +428,8 @@ async def answer_chat(
             retrieved,
             tool_summaries,
             started,
+            prompt_tokens=llm.prompt_tokens if not preclassified else None,
+            completion_tokens=llm.completion_tokens if not preclassified else None,
         )
         await session.commit()
         return ChatResponse(

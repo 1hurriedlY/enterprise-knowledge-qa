@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,18 +50,21 @@ async def create_conversation(
 @router.post("/api/v1/chat", response_model=ChatResponse)
 async def chat(
     payload: ChatRequest,
+    request: Request,
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ChatResponse:
     require_same_user(user, payload.user_id)
     try:
-        return await answer_chat(
+        response = await answer_chat(
             session=session,
             user=user,
             conversation_id=payload.conversation_id,
             query=payload.query,
-            request_id=str(uuid.uuid4()),
+            request_id=getattr(request.state, "request_id", str(uuid.uuid4())),
         )
+        request.state.audit_logged = True
+        return response
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在") from exc
     except (LlmOutputError, TimeoutError) as exc:

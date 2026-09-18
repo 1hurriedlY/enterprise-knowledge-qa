@@ -1,18 +1,24 @@
+import time
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from redis.asyncio import Redis
 from sqlalchemy import text
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.responses import Response
 
 from app.bootstrap import seed_demo_identity
 from app.config import get_settings
 from app.database import SessionLocal, engine
+from app.models import RequestLog
 from app.routers.admin import router as admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.schemas import HealthResponse
+from app.services.redaction import redact_text
 from app.services.vector_store import VectorStore
 
 settings = get_settings()
@@ -45,6 +51,44 @@ app = FastAPI(
 app.include_router(files_router)
 app.include_router(chat_router)
 app.include_router(admin_router)
+
+
+@app.middleware("http")
+async def audit_request(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    """Persist a minimal audit trail for every non-chat request.
+
+    Chat requests write a richer record in the service layer and mark
+    ``audit_logged`` to prevent a duplicate entry.
+    """
+    request.state.request_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    response: Response | None = None
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request.state.request_id
+        return response
+    finally:
+        if not getattr(request.state, "audit_logged", False):
+            try:
+                async with SessionLocal() as session:
+                    session.add(
+                        RequestLog(
+                            request_id=request.state.request_id,
+                            user_id=getattr(request.state, "user_id", None),
+                            path=request.url.path,
+                            method=request.method,
+                            query=redact_text(str(request.query_params)) or None,
+                            retrieved_chunks=[],
+                            tool_calls=[],
+                            latency_ms=int((time.perf_counter() - started) * 1000),
+                            status_code=response.status_code if response is not None else 500,
+                            error_message=None if response is not None else "请求处理失败",
+                        )
+                    )
+                    await session.commit()
+            except Exception:
+                # Audit failure must never hide the original business response.
+                pass
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
