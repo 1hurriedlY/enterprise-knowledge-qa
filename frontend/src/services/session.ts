@@ -1,4 +1,10 @@
 const API_KEY_STORAGE_KEY = 'enterprise-knowledge-qa.api-key'
+const CONVERSATION_STORAGE_KEY = 'enterprise-knowledge-qa.conversation'
+
+interface StoredConversation {
+  conversationId: string
+  userId: string
+}
 
 const storage = (): Storage | undefined => {
   if (typeof window === 'undefined') return undefined
@@ -31,4 +37,40 @@ export const saveSessionApiKey = (apiKey: string): void => {
 
 export const clearSessionApiKey = (): void => {
   storage()?.removeItem(API_KEY_STORAGE_KEY)
+  clearCurrentConversation()
+}
+
+export const getCurrentConversation = (userId: string): string | undefined => {
+  const serialized = storage()?.getItem(CONVERSATION_STORAGE_KEY)
+  if (!serialized) return undefined
+
+  try {
+    const value = JSON.parse(serialized) as Partial<StoredConversation>
+    if (value.userId === userId && typeof value.conversationId === 'string') {
+      return value.conversationId
+    }
+  } catch {
+    // A malformed browser value must not block normal chat usage.
+  }
+
+  clearCurrentConversation()
+  return undefined
+}
+
+export const saveCurrentConversation = (
+  conversationId: string,
+  userId: string,
+): void => {
+  const sessionStorage = storage()
+  if (!sessionStorage) {
+    throw new Error('Session storage is unavailable')
+  }
+  sessionStorage.setItem(
+    CONVERSATION_STORAGE_KEY,
+    JSON.stringify({ conversationId, userId } satisfies StoredConversation),
+  )
+}
+
+export const clearCurrentConversation = (): void => {
+  storage()?.removeItem(CONVERSATION_STORAGE_KEY)
 }
