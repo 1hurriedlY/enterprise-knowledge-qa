@@ -255,11 +255,15 @@ onMounted(() => {
             <h2>你好，我是企业知识库客服</h2>
             <p>你可以询问业务政策、订单状态、物流进度，或申请转人工服务。</p>
             <div class="suggested-questions">
-            <el-button text @click="query = '如何申请退款？'">如何申请退款？</el-button>
-            <el-button text @click="query = '我的订单 12345 发货了吗？'">
-              我的订单 12345 发货了吗？
-            </el-button>
-            <el-button text @click="query = '我要转人工客服'">我要转人工客服</el-button>
+              <el-button text @click="query = '如何申请退款？'"
+                >如何申请退款？</el-button
+              >
+              <el-button text @click="query = '我的订单 12345 发货了吗？'">
+                我的订单 12345 发货了吗？
+              </el-button>
+              <el-button text @click="query = '我要转人工客服'"
+                >我要转人工客服</el-button
+              >
             </div>
           </div>
 
