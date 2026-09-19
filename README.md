@@ -11,13 +11,13 @@
 - 工具：模拟订单、物流、转人工工单，以及工具超时与失败处理。
 - 审计：请求、引用和工具调用记录；管理员只读查询与敏感信息脱敏。
 
-技术栈：Vue 3、TypeScript、Element Plus、Nginx、Python 3.12、FastAPI、SQLAlchemy Async、Alembic、PostgreSQL、Redis + ARQ、Qdrant、Docker Compose、OpenAI 兼容 LLM / Embedding 接口。
+技术栈：Python 3.12、FastAPI、Vue 3、TypeScript、Element Plus、Nginx、SQLAlchemy Async、Alembic、PostgreSQL、Redis + ARQ、Qdrant、Docker Compose、OpenAI 兼容 LLM / Embedding 接口。
 
 ## 快速启动
 
 1. 复制 `.env.example` 为 `.env`，填写云百炼兼容接口的 `LLM_API_KEY` 和本地 `DEMO_API_KEY`。
 2. 启动服务：`docker compose up --build`。
-3. 打开 [前端界面](http://localhost:8080)，在“设置与 API Key”中保存本地 `DEMO_API_KEY`。
+3. 打开 [前端界面](http://localhost:8080)，可在“登录与注册”中创建账户或登录；也可以在“设置与 API Key”中保存本地 `DEMO_API_KEY`。
 4. 可选：打开 [Swagger UI](http://localhost:8000/docs)，或请求 [健康检查](http://localhost:8000/health)。
 
 Docker Compose 会启动前端、API、异步 Worker、PostgreSQL、Redis 和 Qdrant。首次启动会创建演示管理员、API Key 对应身份以及订单 `12345` 的模拟数据。
@@ -28,9 +28,10 @@ Docker Compose 会启动前端、API、异步 Worker、PostgreSQL、Redis 和 Qd
 
 访问 [http://localhost:8080](http://localhost:8080)，然后：
 
-1. 在“设置与 API Key”中粘贴 `.env` 中的 `DEMO_API_KEY`，点击“保存到本会话”和“验证 API Key”。该值仅保存在当前浏览器标签页中，关闭标签页后自动清除。
-2. 在“知识文档”上传 PDF、Markdown 或 TXT 文件。处理状态完成后，可在“智能对话”中提问并查看引用来源。
-3. 演示 API Key 默认属于管理员，因此也可在“管理后台”查看服务端脱敏后的审计记录。
+1. 打开“登录与注册”，注册或登录后系统会自动保存当前会话 API Key。
+2. 在“设置与 API Key”中查看自己的姓名、邮箱、角色和用户 ID；API Key 只保存在当前浏览器标签页中，关闭标签页后自动清除。
+3. 在“知识文档”上传 PDF、Markdown 或 TXT 文件。处理状态完成后，可在“智能对话”中提问并查看引用来源。
+4. 演示 API Key 默认属于管理员，因此也可在“管理后台”查看服务端脱敏后的审计记录。
 
 仅开发前端时，可运行：
 

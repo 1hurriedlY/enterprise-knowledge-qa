@@ -12,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 
 const activeMenu = computed(() => route.name?.toString() ?? 'chat')
+const isAuthRoute = computed(() => route.name === 'auth')
 
 const navigate = (name: string) => {
   void router.push({ name })
@@ -19,7 +20,8 @@ const navigate = (name: string) => {
 </script>
 
 <template>
-  <el-container class="app-shell">
+  <router-view v-if="isAuthRoute" />
+  <el-container v-else class="app-shell">
     <el-aside width="224px" class="sidebar">
       <div class="brand">
         <span class="brand-mark">AI</span>
@@ -47,7 +49,6 @@ const navigate = (name: string) => {
     <el-container>
       <el-header class="topbar">
         <span>{{ route.meta.title }}</span>
-        <el-tag type="info" effect="plain">初级版</el-tag>
       </el-header>
       <el-main class="main-content">
         <router-view />

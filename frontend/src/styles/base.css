@@ -121,6 +121,83 @@ body {
   margin-top: 20px;
 }
 
+.identity-card {
+  margin-bottom: 20px;
+}
+
+.identity-alert {
+  margin-bottom: 20px;
+}
+
+.breakable-text {
+  overflow-wrap: anywhere;
+}
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  padding: 32px 20px;
+  background: #f6f8fc;
+  place-items: center;
+}
+
+.auth-card {
+  width: min(100%, 480px);
+}
+
+.auth-heading {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.auth-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  place-items: center;
+  color: #fff;
+  background: #2563eb;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.auth-heading h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.auth-heading p,
+.auth-switch {
+  margin: 0;
+  color: #667085;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.auth-mode {
+  display: flex;
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.auth-mode .el-segmented__item {
+  flex: 1;
+}
+
+.auth-form {
+  margin-top: 8px;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.auth-switch {
+  margin-top: 20px;
+}
+
 .action-row {
   flex-wrap: wrap;
   gap: 12px;

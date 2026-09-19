@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { CircleCheck, CircleClose, RefreshRight } from '@element-plus/icons-vue'
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import {
+  type CurrentUser,
   type DependencyStatus,
   type HealthResponse,
+  getCurrentUser,
   getHealth,
   verifyApiKey,
 } from '@/services/api'
@@ -18,8 +21,11 @@ import {
 type CheckState = 'idle' | 'loading' | 'success' | 'error'
 
 const apiKeyInput = ref('')
+const router = useRouter()
 const apiKeySaved = ref(hasSessionApiKey())
 const apiKeyState = ref<CheckState>('idle')
+const userState = ref<CheckState>('idle')
+const currentUser = ref<CurrentUser>()
 const healthState = ref<CheckState>('idle')
 const health = ref<HealthResponse>()
 
@@ -76,6 +82,7 @@ const saveApiKey = () => {
     apiKeyInput.value = ''
     apiKeySaved.value = true
     apiKeyState.value = 'idle'
+    void loadCurrentUser(getSessionApiKey())
   } catch {
     apiKeyState.value = 'error'
   }
@@ -91,6 +98,7 @@ const testApiKey = async () => {
   apiKeyState.value = 'loading'
   try {
     await verifyApiKey(apiKey)
+    await loadCurrentUser(apiKey)
     apiKeyState.value = 'success'
   } catch {
     apiKeyState.value = 'error'
@@ -102,10 +110,30 @@ const clearApiKey = () => {
   apiKeyInput.value = ''
   apiKeySaved.value = false
   apiKeyState.value = 'idle'
+  currentUser.value = undefined
+  userState.value = 'idle'
+  void router.push({ name: 'auth', query: { redirect: '/chat' } })
+}
+
+const loadCurrentUser = async (apiKey: string | undefined) => {
+  if (!apiKey) {
+    currentUser.value = undefined
+    userState.value = 'idle'
+    return
+  }
+  userState.value = 'loading'
+  try {
+    currentUser.value = await getCurrentUser(apiKey)
+    userState.value = 'success'
+  } catch {
+    currentUser.value = undefined
+    userState.value = 'error'
+  }
 }
 
 onMounted(() => {
   void checkHealth()
+  void loadCurrentUser(getSessionApiKey())
 })
 </script>
 
@@ -120,6 +148,41 @@ onMounted(() => {
 
     <el-row :gutter="20">
       <el-col :xs="24" :lg="14">
+        <el-card v-if="currentUser" shadow="never" class="identity-card">
+          <template #header>
+            <div class="card-header">
+              <span>我的账号</span>
+              <el-tag type="success" effect="plain">已登录</el-tag>
+            </div>
+          </template>
+          <el-descriptions :column="1" border>
+            <el-descriptions-item label="姓名">{{
+              currentUser.name
+            }}</el-descriptions-item>
+            <el-descriptions-item label="邮箱">{{
+              currentUser.email
+            }}</el-descriptions-item>
+            <el-descriptions-item label="角色">
+              <el-tag
+                :type="currentUser.role === 'admin' ? 'warning' : 'info'"
+                effect="plain"
+              >
+                {{ currentUser.role === 'admin' ? '管理员' : '普通用户' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="用户 ID">
+              <span class="breakable-text">{{ currentUser.user_id }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+        <el-alert
+          v-else-if="userState === 'error'"
+          class="identity-alert"
+          title="当前 API Key 无效或已失效，请重新登录或更换 API Key。"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
         <el-card shadow="never">
           <template #header>
             <div class="card-header">
@@ -167,7 +230,7 @@ onMounted(() => {
                 plain
                 @click="clearApiKey"
               >
-                清除
+                退出登录
               </el-button>
             </div>
           </el-form>
