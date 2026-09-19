@@ -8,18 +8,20 @@ from fastapi import FastAPI, Request
 from redis.asyncio import Redis
 from sqlalchemy import text
 from starlette.middleware.base import RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.bootstrap import seed_demo_identity
 from app.config import get_settings
 from app.database import SessionLocal, engine
 from app.routers.admin import router as admin_router
+from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.users import router as users_router
 from app.schemas import HealthResponse
 from app.services.audit import persist_request_audit
 from app.services.llm import LlmClient
+from app.services.rate_limit import check_request_limit
 from app.services.vector_store import VectorStore
 
 settings = get_settings()
@@ -39,9 +41,10 @@ app = FastAPI(
     summary="支持文档入库、RAG 问答与订单工具的企业知识库客服 API。",
     description=(
         "基于 FastAPI、PostgreSQL、Redis、Qdrant 和 OpenAI 兼容接口的初级企业知识库客服系统。"
-        "除健康检查外，所有业务接口均需要 X-API-Key。"
+        "除健康检查、注册和登录外，业务接口均需要 X-API-Key。"
     ),
     openapi_tags=[
+        {"name": "auth", "description": "注册、登录与 API Key 管理。"},
         {"name": "users", "description": "当前 API Key 所属用户的身份信息。"},
         {"name": "files", "description": "用户自己的文档上传、查询和删除。"},
         {"name": "chat", "description": "用户自己的会话、消息历史和知识库问答。"},
@@ -54,6 +57,7 @@ app.include_router(files_router)
 app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(users_router)
+app.include_router(auth_router)
 
 
 @app.middleware("http")
@@ -67,6 +71,15 @@ async def audit_request(request: Request, call_next: RequestResponseEndpoint) ->
     started = time.perf_counter()
     response: Response | None = None
     try:
+        rate_limit = await check_request_limit(request, settings)
+        if rate_limit is not None and not rate_limit.allowed:
+            response = JSONResponse(
+                status_code=429,
+                content={"detail": "请求过于频繁，请稍后重试"},
+                headers={"Retry-After": str(rate_limit.retry_after)},
+            )
+            response.headers["X-Request-ID"] = request.state.request_id
+            return response
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response

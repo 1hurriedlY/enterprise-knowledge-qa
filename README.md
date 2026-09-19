@@ -56,6 +56,7 @@ npm run dev
 | `HYBRID_SEARCH_ENABLED`                     | 是否启用 BM25 + 向量混合检索，默认 true |
 | `HYBRID_VECTOR_WEIGHT` / `HYBRID_BM25_WEIGHT` | 混合检索权重，默认 0.60 / 0.40       |
 | `BM25_CACHE_TTL_SECONDS` / `BM25_CACHE_MAX_USERS` / `BM25_CACHE_MAX_CHUNKS` | BM25 缓存 TTL / 最大用户数 / 单用户最大切片数，默认 60 / 100 / 10000 |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS` / `RATE_LIMIT_FAIL_OPEN` | Redis 固定窗口限流，默认每 60 秒 60 次；Redis 故障默认拒绝请求 |
 
 当单个用户的已完成切片超过 `BM25_CACHE_MAX_CHUNKS` 时，为保护接口延迟，系统记录告警并临时降级为该用户的向量检索。
 
@@ -63,7 +64,9 @@ npm run dev
 
 ## 身份与安全
 
-除 `GET /health` 外，每个业务接口都需要请求头 `X-API-Key`。携带 `user_id` 的请求还会校验该 ID 是否与 API Key 所属用户一致。管理员接口还需 `admin` 角色。
+除 `GET /health`、注册和登录外，每个业务接口都需要请求头 `X-API-Key`。携带 `user_id` 的请求还会校验该 ID 是否与 API Key 所属用户一致。管理员接口还需 `admin` 角色。
+
+可通过 `POST /api/v1/auth/register` 注册并获得一次性 API Key；登录、创建和撤销 API Key 见 Swagger 的 `auth` 分组。服务端只保存 API Key 哈希，创建响应中的明文 Key 不会再次返回。
 
 不要提交 `.env`。虚拟环境、缓存、上传原文件与本地运行数据已由 `.gitignore` 排除。
 
@@ -71,6 +74,8 @@ npm run dev
 
 | 功能                 | 接口                                                                                            |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
+| 注册 / 登录           | `POST /api/v1/auth/register`、`POST /api/v1/auth/login`                                          |
+| API Key 管理          | `POST/GET /api/v1/auth/api-keys`、`DELETE /api/v1/auth/api-keys/{key_id}`                        |
 | 上传 / 管理文档      | `POST /api/v1/files/upload`、`GET /api/v1/files`、`DELETE /api/v1/files/{document_id}`          |
 | 创建会话与问答       | `POST /api/v1/conversations`、`POST /api/v1/chat`、`POST /api/v1/chat/stream`                   |
 | 查看消息历史         | `GET /api/v1/conversations/{conversation_id}/messages`                                          |

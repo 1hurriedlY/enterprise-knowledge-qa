@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     vector_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     external_max_retries: int = Field(default=2, ge=0, le=3)
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = Field(default=60, ge=1, le=100000)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    rate_limit_fail_open: bool = False
 
     @model_validator(mode="after")
     def validate_search_configuration(self) -> "Settings":

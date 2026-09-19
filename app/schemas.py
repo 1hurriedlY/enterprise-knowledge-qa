@@ -7,6 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 from app.domain import Confidence, DocumentStatus, Intent, MessageRole, ToolCallStatus, UserRole
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+EmailText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+    ),
+]
+PasswordText = Annotated[str, StringConstraints(min_length=8, max_length=128)]
 OrderId = Annotated[
     str,
     StringConstraints(
@@ -27,6 +37,45 @@ class CurrentUserResponse(StrictModel):
     name: str
     email: str
     role: UserRole
+
+
+class RegisterRequest(StrictModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    email: EmailText
+    password: PasswordText
+
+
+class LoginRequest(StrictModel):
+    email: EmailText
+    password: PasswordText
+
+
+class ApiKeyCreateRequest(StrictModel):
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+
+
+class ApiKeyResponse(StrictModel):
+    key_id: uuid.UUID
+    label: str
+    created_at: datetime
+    revoked_at: datetime | None
+    active: bool
+
+
+class ApiKeyCreateResponse(ApiKeyResponse):
+    api_key: str
+
+
+class ApiKeyListResponse(StrictModel):
+    api_keys: list[ApiKeyResponse]
+
+
+class AuthResponse(StrictModel):
+    user_id: uuid.UUID
+    name: str
+    email: str
+    role: UserRole
+    api_key: str
 
 
 class DocumentUploadResponse(StrictModel):
