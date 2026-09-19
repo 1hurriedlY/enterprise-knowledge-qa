@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import time
 import uuid
@@ -10,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.domain import Intent, MessageRole, ToolCallStatus
 from app.models import Chunk, Conversation, Document, Message, RequestLog, ToolCall, User
 from app.prompts import (
@@ -43,8 +44,11 @@ from app.schemas import (
 )
 from app.services.llm import LlmClient, LlmOutputError, compact_json, render_history
 from app.services.redaction import redact_json, redact_text
+from app.services.reranker import RerankClient, RerankError, RerankScore
 from app.services.tools import query_logistics, query_order, transfer_to_human
 from app.services.vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 NO_ANSWER = "抱歉，知识库中未找到相关信息。如果您需要进一步帮助，可以转接人工客服。"
 SENSITIVE_REPLY = "抱歉，我无法提供这类高风险建议。如果您有订单或售后服务相关问题，我可以帮您处理。"
@@ -132,10 +136,11 @@ async def _history(session: AsyncSession, conversation_id: uuid.UUID) -> list[tu
 async def _retrieve(
     session: AsyncSession, user_id: uuid.UUID, query: str, llm: LlmClient
 ) -> list[RetrievedChunk]:
+    settings = get_settings()
     vector = await llm.embed(query)
     hits = await VectorStore().search(user_id, vector, limit=10)
-    threshold = get_settings().retrieval_score_threshold
-    hit_scores = {chunk_id: score for chunk_id, score in hits if score >= threshold}
+    threshold = settings.retrieval_score_threshold
+    hit_scores = {chunk_id: score for chunk_id, score in hits}
     if not hit_scores:
         return []
     rows = (
@@ -146,15 +151,15 @@ async def _retrieve(
         )
     ).all()
     found = {chunk.id: (chunk, document) for chunk, document in rows}
-    results: list[RetrievedChunk] = []
-    for index, (chunk_id, score) in enumerate(hits, start=1):
+    candidates: list[RetrievedChunk] = []
+    for chunk_id, score in hits:
         pair = found.get(chunk_id)
-        if pair is None or score < threshold or len(results) == 5:
+        if pair is None:
             continue
         chunk, document = pair
-        results.append(
+        candidates.append(
             RetrievedChunk(
-                number=str(index),
+                number="",
                 source=SourceCitation(
                     document_id=document.id,
                     filename=document.filename,
@@ -165,7 +170,57 @@ async def _retrieve(
                 ),
             )
         )
-    return results
+
+    if not settings.rerank_enabled:
+        eligible = [item for item in candidates if item.source.score >= threshold]
+        return _renumber_chunks(eligible[:5])
+
+    return await _rerank_candidates(query, candidates, settings)
+
+
+async def _rerank_candidates(
+    query: str, candidates: Sequence[RetrievedChunk], settings: Settings
+) -> list[RetrievedChunk]:
+    try:
+        rerank_scores = await RerankClient(settings).rerank(
+            query,
+            [item.source.content for item in candidates],
+            top_n=settings.rerank_top_n,
+        )
+    except RerankError:
+        logger.warning("rerank failed; falling back to vector ranking", exc_info=True)
+        eligible = [
+            item for item in candidates if item.source.score >= settings.retrieval_score_threshold
+        ]
+        return _renumber_chunks(eligible[:5])
+
+    return _apply_rerank(candidates, rerank_scores, settings.rerank_score_threshold)
+
+
+def _renumber_chunks(chunks: Sequence[RetrievedChunk]) -> list[RetrievedChunk]:
+    return [
+        RetrievedChunk(number=str(index), source=item.source)
+        for index, item in enumerate(chunks, start=1)
+    ]
+
+
+def _apply_rerank(
+    candidates: Sequence[RetrievedChunk],
+    scores: Sequence[RerankScore],
+    score_threshold: float,
+) -> list[RetrievedChunk]:
+    reranked: list[RetrievedChunk] = []
+    for result in sorted(scores, key=lambda item: item.score, reverse=True):
+        if result.score < score_threshold:
+            continue
+        if result.index >= len(candidates):
+            logger.warning("ignoring rerank result with invalid index: %s", result.index)
+            continue
+        source = candidates[result.index].source.model_copy(update={"score": result.score})
+        reranked.append(RetrievedChunk(number="", source=source))
+        if len(reranked) == 5:
+            break
+    return _renumber_chunks(reranked)
 
 
 def _context(chunks: Sequence[RetrievedChunk]) -> str:
@@ -173,6 +228,27 @@ def _context(chunks: Sequence[RetrievedChunk]) -> str:
         f"[{item.number}]\n文档：{item.source.filename}\n标题路径：{item.source.heading_path}\n内容：{item.source.content}"
         for item in chunks
     )
+
+
+def _validated_rag_answer(
+    result: RagAnswerResult, retrieved: Sequence[RetrievedChunk]
+) -> tuple[str, list[SourceCitation], bool]:
+    chosen = {item.number: item.source for item in retrieved}
+    valid_citations = [number for number in result.citations if number in chosen]
+    sources = [chosen[number] for number in valid_citations]
+    if not sources:
+        return NO_ANSWER, [], True
+
+    valid_set = set(valid_citations)
+    answer = re.sub(
+        r"\[([1-5])\]",
+        lambda match: match.group(0) if match.group(1) in valid_set else "",
+        result.answer,
+    )
+    for number in valid_citations:
+        if f"[{number}]" not in answer:
+            answer = f"{answer} [{number}]"
+    return answer, sources, result.need_human
 
 
 async def _save_log(
@@ -438,15 +514,7 @@ async def answer_chat(
                         ),
                         RagAnswerResult,
                     )
-                    chosen = {item.number: item.source for item in retrieved}
-                    sources = [chosen[number] for number in result.citations if number in chosen]
-                    if not sources:
-                        answer, need_human = NO_ANSWER, True
-                    else:
-                        answer, need_human = result.answer, result.need_human
-                        for number in result.citations:
-                            if f"[{number}]" not in answer:
-                                answer = f"{answer} [{number}]"
+                    answer, sources, need_human = _validated_rag_answer(result, retrieved)
         assistant_message = Message(
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
