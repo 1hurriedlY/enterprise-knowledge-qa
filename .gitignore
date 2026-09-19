@@ -8,3 +8,5 @@ data/uploads/
 .venv-*.err
 frontend/node_modules/
 frontend/dist/
+evals/reports/
+evals/predictions*.jsonl

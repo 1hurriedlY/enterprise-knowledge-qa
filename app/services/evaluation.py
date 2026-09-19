@@ -1,5 +1,6 @@
-"""Structured LLM evaluation and aggregate metrics for recorded test runs."""
+"""Structured LLM evaluation, metrics, and latency summaries for real test runs."""
 
+import math
 from collections.abc import Iterable
 from typing import Any
 
@@ -56,3 +57,23 @@ def average_metrics(results: Iterable[dict[str, float]]) -> dict[str, float]:
     if hallucinations:
         metrics["hallucination_rate"] = round(sum(hallucinations) / len(hallucinations), 4)
     return metrics
+
+
+def latency_summary(latencies: Iterable[int]) -> dict[str, float | int]:
+    """Return deterministic nearest-rank latency statistics in milliseconds."""
+    values = sorted(latencies)
+    if not values:
+        return {}
+
+    def percentile(percent: float) -> int:
+        index = max(0, math.ceil(percent * len(values)) - 1)
+        return values[index]
+
+    return {
+        "count": len(values),
+        "min_ms": values[0],
+        "mean_ms": round(sum(values) / len(values), 2),
+        "p50_ms": percentile(0.50),
+        "p95_ms": percentile(0.95),
+        "max_ms": values[-1],
+    }

@@ -220,6 +220,43 @@ class ToolEvaluationResult(StrictModel):
     reason: str
 
 
+class AnswerEvaluationRecord(StrictModel):
+    """One recorded, real system response submitted for RAG evaluation."""
+
+    id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    kind: Literal["answer"]
+    question: NonEmptyText
+    expected_answer: NonEmptyText
+    expected_source: NonEmptyText
+    prediction: str
+    predicted_sources: list[dict[str, Any]]
+    latency_ms: int = Field(ge=0)
+    observed_latency_ms: int | None = Field(default=None, ge=0)
+
+
+class ToolEvaluationRecord(StrictModel):
+    """One recorded, real system tool-decision response submitted for evaluation."""
+
+    id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    kind: Literal["tool"]
+    question: NonEmptyText
+    expected_tool: NonEmptyText
+    expected_input: dict[str, Any]
+    predicted_tool: str | None
+    predicted_input: dict[str, Any]
+    latency_ms: int = Field(ge=0)
+    observed_latency_ms: int | None = Field(default=None, ge=0)
+
+
+class AnswerEvaluationScenario(StrictModel):
+    """Ground truth used to capture one live RAG response for evaluation."""
+
+    id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    question: NonEmptyText
+    expected_answer: NonEmptyText
+    expected_source: NonEmptyText
+
+
 class QueryOrderArgs(StrictModel):
     order_id: OrderId
 
