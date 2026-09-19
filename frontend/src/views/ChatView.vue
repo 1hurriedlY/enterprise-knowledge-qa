@@ -16,7 +16,7 @@ import {
   type ToolCallSummary,
   createConversation,
   getConversationMessages,
-  sendChat,
+  sendChatStream,
 } from '@/services/chat'
 import { getCurrentUser, type CurrentUserResponse } from '@/services/documents'
 import {
@@ -155,34 +155,40 @@ const submitQuery = async () => {
   messages.value.push(optimisticMessage)
   await scrollToLatest()
 
+  let streamingMessage: DisplayMessage | undefined
   try {
     const activeConversationId =
       conversationId.value ??
       (await createConversationForQuery(apiKey, user.user_id, value))
-    const response = await sendChat(
-      apiKey,
-      user.user_id,
-      activeConversationId,
-      value,
-    )
     messages.value.push({
       role: 'assistant',
-      content: response.answer,
-      sources: response.sources,
+      content: '',
+      sources: [],
       created_at: new Date().toISOString(),
-      metadata: {
-        need_human: response.need_human,
-        rewritten_query: response.rewritten_query,
-        tool_calls: response.tool_calls,
-        latency_ms: response.latency_ms,
+    })
+    const activeStreamingMessage = messages.value[messages.value.length - 1]!
+    streamingMessage = activeStreamingMessage
+    await scrollToLatest()
+    await sendChatStream(apiKey, user.user_id, activeConversationId, value, {
+      onDelta: (content) => {
+        activeStreamingMessage.content += content
+        void scrollToLatest()
+      },
+      onComplete: (response) => {
+        activeStreamingMessage.sources = response.sources
+        activeStreamingMessage.metadata = {
+          need_human: response.need_human,
+          rewritten_query: response.rewritten_query,
+          tool_calls: response.tool_calls,
+          latency_ms: response.latency_ms,
+        }
+        void scrollToLatest()
       },
     })
-    await scrollToLatest()
   } catch {
     messages.value = messages.value.filter(
-      (message) => message !== optimisticMessage,
+      (message) => message !== streamingMessage,
     )
-    query.value = value
     errorMessage.value = '暂时无法处理本次咨询，请稍后重试或转接人工客服。'
   } finally {
     isSending.value = false
@@ -286,7 +292,9 @@ onMounted(() => {
                 }}</strong>
                 <time>{{ formatDate(message.created_at) }}</time>
               </div>
-              <div class="message-bubble">{{ message.content }}</div>
+              <div class="message-bubble">
+                {{ message.content || '正在生成回答…' }}
+              </div>
 
               <div v-if="message.metadata" class="response-metadata">
                 <el-tag

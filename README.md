@@ -7,7 +7,7 @@
 ## 功能与技术栈
 
 - 文档：异步上传、Markdown / TXT / PDF 解析、清洗、标题优先切片与向量删除同步。
-- 问答：历史改写、意图识别、Qdrant 用户隔离检索、严格引用与安全拒答。
+- 问答：历史改写、意图识别、Qdrant 用户隔离检索、严格引用、安全拒答与 SSE 分段交付。
 - 工具：模拟订单、物流、转人工工单，以及工具超时与失败处理。
 - 审计：请求、引用和工具调用记录；管理员只读查询与敏感信息脱敏。
 
@@ -44,15 +44,15 @@ npm run dev
 
 ## 环境变量
 
-| 变量 | 说明 |
-| --- | --- |
-| `LLM_BASE_URL` / `LLM_API_KEY` | OpenAI 兼容的模型服务地址和密钥 |
-| `CHAT_MODEL` / `EMBEDDING_MODEL` | 聊天与向量模型名称 |
-| `EMBEDDING_DIMENSION` | Embedding 向量维度，须和模型匹配 |
-| `DEMO_API_KEY` | 本地演示身份的长随机 API Key |
-| `DATABASE_URL` / `REDIS_URL` / `QDRANT_URL` | Compose 内部依赖连接地址 |
-| `MAX_UPLOAD_BYTES` | 单个文件上限，默认 10 MB |
-| `RETRIEVAL_SCORE_THRESHOLD` | 检索最低相似度分数，默认 0.30 |
+| 变量                                        | 说明                             |
+| ------------------------------------------- | -------------------------------- |
+| `LLM_BASE_URL` / `LLM_API_KEY`              | OpenAI 兼容的模型服务地址和密钥  |
+| `CHAT_MODEL` / `EMBEDDING_MODEL`            | 聊天与向量模型名称               |
+| `EMBEDDING_DIMENSION`                       | Embedding 向量维度，须和模型匹配 |
+| `DEMO_API_KEY`                              | 本地演示身份的长随机 API Key     |
+| `DATABASE_URL` / `REDIS_URL` / `QDRANT_URL` | Compose 内部依赖连接地址         |
+| `MAX_UPLOAD_BYTES`                          | 单个文件上限，默认 10 MB         |
+| `RETRIEVAL_SCORE_THRESHOLD`                 | 检索最低相似度分数，默认 0.30    |
 
 完整模板见 `.env.example`；不要将 `.env` 或任何真实密钥提交到 Git。
 
@@ -64,15 +64,15 @@ npm run dev
 
 ## 核心接口
 
-| 功能 | 接口 |
-| --- | --- |
-| 上传 / 管理文档 | `POST /api/v1/files/upload`、`GET /api/v1/files`、`DELETE /api/v1/files/{document_id}` |
-| 创建会话与问答 | `POST /api/v1/conversations`、`POST /api/v1/chat` |
-| 查看消息历史 | `GET /api/v1/conversations/{conversation_id}/messages` |
+| 功能                 | 接口                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| 上传 / 管理文档      | `POST /api/v1/files/upload`、`GET /api/v1/files`、`DELETE /api/v1/files/{document_id}`          |
+| 创建会话与问答       | `POST /api/v1/conversations`、`POST /api/v1/chat`、`POST /api/v1/chat/stream`                   |
+| 查看消息历史         | `GET /api/v1/conversations/{conversation_id}/messages`                                          |
 | 管理员会话与消息记录 | `GET /api/v1/admin/conversations`、`GET /api/v1/admin/conversations/{conversation_id}/messages` |
-| 管理员请求日志 | `GET /api/v1/admin/logs?limit=50` |
-| 管理员工具记录 | `GET /api/v1/admin/tool-calls?limit=50` |
-| 健康检查 | `GET /health` |
+| 管理员请求日志       | `GET /api/v1/admin/logs?limit=50`                                                               |
+| 管理员工具记录       | `GET /api/v1/admin/tool-calls?limit=50`                                                         |
+| 健康检查             | `GET /health`                                                                                   |
 
 管理员审计输出会对可能出现的 API Key、Bearer Token、密码等文本脱敏。
 
@@ -94,9 +94,11 @@ curl -X POST http://localhost:8000/api/v1/chat \
   "answer": "您的订单 12345 已发货。",
   "intent": "order_query",
   "need_human": false,
-  "tool_calls": [{"tool_name": "query_order", "status": "success"}]
+  "tool_calls": [{ "tool_name": "query_order", "status": "success" }]
 }
 ```
+
+`POST /api/v1/chat/stream` 使用相同请求体和鉴权头，返回 `text/event-stream`。浏览器前端会消费 `delta`、`complete` 和安全的 `error` 事件并逐段渲染答案；服务端只在现有 RAG、引用和结构化校验完成后再开始发送内容。
 
 ## 开发检查
 

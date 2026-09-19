@@ -118,6 +118,30 @@ const parseToolCalls = (value: unknown): ToolCallSummary[] => {
   })
 }
 
+const parseChatResponse = (value: unknown): ChatResponse => {
+  const payload = asRecord(value, 'Chat response must be an object')
+  if (
+    typeof payload.conversation_id !== 'string' ||
+    typeof payload.answer !== 'string' ||
+    typeof payload.intent !== 'string' ||
+    typeof payload.rewritten_query !== 'string' ||
+    typeof payload.need_human !== 'boolean' ||
+    typeof payload.latency_ms !== 'number'
+  ) {
+    throw new Error('Chat response does not match the API contract')
+  }
+  return {
+    conversation_id: payload.conversation_id,
+    answer: payload.answer,
+    sources: parseSources(payload.sources),
+    intent: payload.intent,
+    rewritten_query: payload.rewritten_query,
+    need_human: payload.need_human,
+    tool_calls: parseToolCalls(payload.tool_calls),
+    latency_ms: payload.latency_ms,
+  }
+}
+
 const apiHeaders = (apiKey: string): HeadersInit => ({
   'Content-Type': 'application/json',
   'X-API-Key': apiKey,
@@ -201,29 +225,108 @@ export const sendChat = async (
   )
   if (!response.ok) throw new Error('Chat request failed')
 
-  const payload = asRecord(
-    await response.json(),
-    'Chat response must be an object',
-  )
-  if (
-    typeof payload.conversation_id !== 'string' ||
-    typeof payload.answer !== 'string' ||
-    typeof payload.intent !== 'string' ||
-    typeof payload.rewritten_query !== 'string' ||
-    typeof payload.need_human !== 'boolean' ||
-    typeof payload.latency_ms !== 'number'
-  ) {
-    throw new Error('Chat response does not match the API contract')
+  return parseChatResponse(await response.json())
+}
+
+export interface ChatStreamCallbacks {
+  onDelta: (content: string) => void
+  onComplete: (response: ChatResponse) => void
+}
+
+type SseFrame = { event: string; data: unknown }
+
+const parseSseFrame = (rawFrame: string): SseFrame | undefined => {
+  let event = 'message'
+  const data: string[] = []
+  for (const line of rawFrame.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice('event:'.length).trim()
+    if (line.startsWith('data:'))
+      data.push(line.slice('data:'.length).trimStart())
   }
-  return {
-    conversation_id: payload.conversation_id,
-    answer: payload.answer,
-    sources: parseSources(payload.sources),
-    intent: payload.intent,
-    rewritten_query: payload.rewritten_query,
-    need_human: payload.need_human,
-    tool_calls: parseToolCalls(payload.tool_calls),
-    latency_ms: payload.latency_ms,
+  if (!data.length) return undefined
+  try {
+    return { event, data: JSON.parse(data.join('\n')) }
+  } catch {
+    throw new Error('Stream response is malformed')
+  }
+}
+
+export const sendChatStream = async (
+  apiKey: string,
+  userId: string,
+  conversationId: string,
+  query: string,
+  callbacks: ChatStreamCallbacks,
+): Promise<void> => {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  )
+  let completed = false
+  let answer = ''
+  let buffer = ''
+
+  const handleFrame = (frame: SseFrame | undefined): void => {
+    if (!frame) return
+    if (frame.event === 'delta') {
+      const delta = asRecord(frame.data, 'Stream delta must be an object')
+      if (typeof delta.content !== 'string')
+        throw new Error('Stream delta is malformed')
+      answer += delta.content
+      callbacks.onDelta(delta.content)
+      return
+    }
+    if (frame.event === 'complete') {
+      callbacks.onComplete(
+        parseChatResponse({
+          ...asRecord(frame.data, 'Stream completion must be an object'),
+          answer,
+        }),
+      )
+      completed = true
+      return
+    }
+    if (frame.event === 'error') {
+      const error = asRecord(frame.data, 'Stream error must be an object')
+      throw new Error(
+        typeof error.message === 'string'
+          ? error.message
+          : 'Chat stream failed',
+      )
+    }
+  }
+
+  try {
+    const response = await fetch('/api/v1/chat/stream', {
+      method: 'POST',
+      headers: apiHeaders(apiKey),
+      body: JSON.stringify({
+        user_id: userId,
+        conversation_id: conversationId,
+        query,
+      }),
+      signal: controller.signal,
+    })
+    if (!response.ok || !response.body)
+      throw new Error('Chat stream request failed')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+      let separator = buffer.indexOf('\n\n')
+      while (separator >= 0) {
+        handleFrame(parseSseFrame(buffer.slice(0, separator)))
+        buffer = buffer.slice(separator + 2)
+        separator = buffer.indexOf('\n\n')
+      }
+      if (done) break
+    }
+    if (!completed) throw new Error('Chat stream ended unexpectedly')
+  } finally {
+    window.clearTimeout(timeout)
   }
 }
 import { asRecord, requestWithTimeout } from './http'
