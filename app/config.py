@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     demo_api_key: SecretStr
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     retrieval_score_threshold: float = Field(default=0.30, ge=0, le=1)
+    hybrid_search_enabled: bool = True
+    hybrid_vector_weight: float = Field(default=0.60, ge=0, le=1)
+    hybrid_bm25_weight: float = Field(default=0.40, ge=0, le=1)
+    bm25_cache_ttl_seconds: float = Field(default=60.0, gt=0, le=3600)
+    bm25_cache_max_users: int = Field(default=100, ge=1, le=10000)
+    bm25_cache_max_chunks: int = Field(default=10000, ge=1, le=1000000)
     rerank_enabled: bool = False
     rerank_base_url: HttpUrl | None = None
     rerank_api_key: SecretStr | None = None
@@ -36,9 +42,13 @@ class Settings(BaseSettings):
     external_max_retries: int = Field(default=2, ge=0, le=3)
 
     @model_validator(mode="after")
-    def validate_rerank_configuration(self) -> "Settings":
+    def validate_search_configuration(self) -> "Settings":
         if self.rerank_enabled and not self.rerank_model:
             raise ValueError("RERANK_MODEL is required when RERANK_ENABLED=true")
+        if self.hybrid_search_enabled and (
+            self.hybrid_vector_weight + self.hybrid_bm25_weight <= 0
+        ):
+            raise ValueError("At least one hybrid search weight must be positive")
         return self
 
 

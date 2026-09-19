@@ -3,16 +3,18 @@ import logging
 import re
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.domain import Intent, MessageRole, ToolCallStatus
+from app.domain import DocumentStatus, Intent, MessageRole, ToolCallStatus
 from app.models import Chunk, Conversation, Document, Message, RequestLog, ToolCall, User
 from app.prompts import (
     INTENT_PROMPT_V1,
@@ -42,6 +44,7 @@ from app.schemas import (
     TransferToHumanArgs,
     TransferToHumanResult,
 )
+from app.services.bm25 import Bm25Document, Bm25Hit, Bm25Index
 from app.services.llm import LlmClient, LlmOutputError, compact_json, render_history
 from app.services.redaction import redact_json, redact_text
 from app.services.reranker import RerankClient, RerankError, RerankScore
@@ -64,6 +67,17 @@ class ConversationNotFoundError(ValueError):
 class RetrievedChunk:
     source: SourceCitation
     number: str
+
+
+@dataclass(frozen=True)
+class _CachedBm25Corpus:
+    index: Bm25Index
+    documents: tuple[Bm25Document, ...]
+    fingerprint: tuple[int, datetime | None]
+    expires_at: float
+
+
+_BM25_CACHE: OrderedDict[uuid.UUID, _CachedBm25Corpus] = OrderedDict()
 
 
 def _preclassified_reply(query: str) -> tuple[Intent, str] | None:
@@ -138,34 +152,74 @@ async def _retrieve(
 ) -> list[RetrievedChunk]:
     settings = get_settings()
     vector = await llm.embed(query)
-    hits = await VectorStore().search(user_id, vector, limit=10)
+    vector_hits = await VectorStore().search(user_id, vector, limit=10)
     threshold = settings.retrieval_score_threshold
-    hit_scores = {chunk_id: score for chunk_id, score in hits}
-    if not hit_scores:
+    found_rows: dict[uuid.UUID, tuple[Chunk, Document]] = {}
+    found_documents: dict[uuid.UUID, Bm25Document] = {}
+    use_hybrid = settings.hybrid_search_enabled
+    if use_hybrid:
+        corpus = await _get_bm25_corpus(session, user_id, settings)
+        if corpus is None:
+            use_hybrid = False
+        else:
+            index, documents = corpus
+            found_documents = {document.chunk_id: document for document in documents}
+            bm25_hits = index.search(query, limit=10)
+            hits = _fuse_hybrid_hits(
+                vector_hits,
+                bm25_hits,
+                settings.hybrid_vector_weight,
+                settings.hybrid_bm25_weight,
+                limit=10,
+            )
+    if not use_hybrid:
+        if not vector_hits:
+            return []
+        hit_scores = {chunk_id: score for chunk_id, score in vector_hits}
+        rows = (
+            await session.execute(
+                select(Chunk, Document)
+                .join(Document, Document.id == Chunk.document_id)
+                .where(
+                    Chunk.id.in_(hit_scores),
+                    Document.user_id == user_id,
+                    Document.status == DocumentStatus.COMPLETED,
+                )
+            )
+        ).all()
+        hits = vector_hits
+    if not hits:
         return []
-    rows = (
-        await session.execute(
-            select(Chunk, Document)
-            .join(Document, Document.id == Chunk.document_id)
-            .where(Chunk.id.in_(hit_scores), Document.user_id == user_id)
-        )
-    ).all()
-    found = {chunk.id: (chunk, document) for chunk, document in rows}
+    if not use_hybrid:
+        found_rows = {chunk.id: (chunk, document) for chunk, document in rows}
     candidates: list[RetrievedChunk] = []
     for chunk_id, score in hits:
-        pair = found.get(chunk_id)
-        if pair is None:
-            continue
-        chunk, document = pair
+        if use_hybrid:
+            bm25_document = found_documents.get(chunk_id)
+            if bm25_document is None:
+                continue
+            document_id = bm25_document.document_id
+            filename = bm25_document.filename
+            heading_path = bm25_document.heading_path
+            content = bm25_document.content
+        else:
+            pair = found_rows.get(chunk_id)
+            if pair is None:
+                continue
+            chunk, row_document = pair
+            document_id = row_document.id
+            filename = row_document.filename
+            heading_path = chunk.heading_path
+            content = chunk.content
         candidates.append(
             RetrievedChunk(
                 number="",
                 source=SourceCitation(
-                    document_id=document.id,
-                    filename=document.filename,
-                    chunk_id=chunk.id,
-                    heading_path=chunk.heading_path,
-                    content=chunk.content,
+                    document_id=document_id,
+                    filename=filename,
+                    chunk_id=chunk_id,
+                    heading_path=heading_path,
+                    content=content,
                     score=score,
                 ),
             )
@@ -176,6 +230,108 @@ async def _retrieve(
         return _renumber_chunks(eligible[:5])
 
     return await _rerank_candidates(query, candidates, settings)
+
+
+async def _get_bm25_corpus(
+    session: AsyncSession, user_id: uuid.UUID, settings: Settings
+) -> tuple[Bm25Index, tuple[Bm25Document, ...]] | None:
+    now = time.monotonic()
+    fingerprint = await _bm25_fingerprint(session, user_id)
+    if fingerprint[0] > settings.bm25_cache_max_chunks:
+        logger.warning(
+            "BM25 corpus exceeds configured limit; using vector-only retrieval for user %s",
+            user_id,
+        )
+        _BM25_CACHE.pop(user_id, None)
+        return None
+    cached = _BM25_CACHE.get(user_id)
+    if (
+        cached is not None
+        and cached.expires_at > now
+        and cached.fingerprint == fingerprint
+    ):
+        _BM25_CACHE.move_to_end(user_id)
+        return cached.index, cached.documents
+
+    rows = (
+        await session.execute(
+            select(Chunk, Document)
+            .join(Document, Document.id == Chunk.document_id)
+            .where(
+                Document.user_id == user_id,
+                Document.status == DocumentStatus.COMPLETED,
+            )
+        )
+    ).all()
+    documents = tuple(
+        Bm25Document(
+            chunk_id=chunk.id,
+            document_id=document.id,
+            filename=document.filename,
+            heading_path=chunk.heading_path,
+            content=chunk.content,
+        )
+        for chunk, document in rows
+    )
+    index = Bm25Index(documents)
+    if len(documents) <= settings.bm25_cache_max_chunks:
+        _BM25_CACHE[user_id] = _CachedBm25Corpus(
+            index=index,
+            documents=documents,
+            fingerprint=fingerprint,
+            expires_at=now + settings.bm25_cache_ttl_seconds,
+        )
+        _BM25_CACHE.move_to_end(user_id)
+        while len(_BM25_CACHE) > settings.bm25_cache_max_users:
+            _BM25_CACHE.popitem(last=False)
+    else:
+        _BM25_CACHE.pop(user_id, None)
+    return index, documents
+
+
+async def _bm25_fingerprint(
+    session: AsyncSession, user_id: uuid.UUID
+) -> tuple[int, datetime | None]:
+    result = await session.execute(
+        select(func.count(Chunk.id), func.max(Document.updated_at))
+        .join(Document, Document.id == Chunk.document_id)
+        .where(
+            Document.user_id == user_id,
+            Document.status == DocumentStatus.COMPLETED,
+        )
+    )
+    count, latest_updated_at = result.one()
+    return int(count), latest_updated_at
+
+
+def _fuse_hybrid_hits(
+    vector_hits: Sequence[tuple[uuid.UUID, float]],
+    bm25_hits: Sequence[Bm25Hit],
+    vector_weight: float,
+    bm25_weight: float,
+    limit: int,
+) -> list[tuple[uuid.UUID, float]]:
+    """Fuse absolute vector scores with max-normalized BM25 scores."""
+    total_weight = vector_weight + bm25_weight
+    if total_weight <= 0 or limit <= 0:
+        return []
+    vector_scores = {chunk_id: max(0.0, min(1.0, score)) for chunk_id, score in vector_hits}
+    bm25_scores = {hit.chunk_id: hit.score for hit in bm25_hits}
+    max_bm25 = max(bm25_scores.values(), default=0.0)
+    ordered_ids = list(dict.fromkeys([*vector_scores, *bm25_scores]))
+    bm25_scale = max_bm25 if max_bm25 > 0 else 1.0
+    fused = [
+        (
+            chunk_id,
+            (
+                vector_weight * vector_scores.get(chunk_id, 0.0)
+                + bm25_weight * (bm25_scores.get(chunk_id, 0.0) / bm25_scale)
+            )
+            / total_weight,
+        )
+        for chunk_id in ordered_ids
+    ]
+    return sorted(fused, key=lambda item: item[1], reverse=True)[:limit]
 
 
 async def _rerank_candidates(

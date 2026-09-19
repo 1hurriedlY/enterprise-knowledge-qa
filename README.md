@@ -7,7 +7,7 @@
 ## 功能与技术栈
 
 - 文档：异步上传、Markdown / TXT / PDF 解析、清洗、标题优先切片与向量删除同步。
-- 问答：历史改写、意图识别、Qdrant 用户隔离检索、严格引用、安全拒答与 SSE 分段交付。
+- 问答：历史改写、意图识别、BM25 + 向量混合检索、Rerank 重排序、严格引用、安全拒答与 SSE 分段交付。
 - 工具：模拟订单、物流、转人工工单，以及工具超时与失败处理。
 - 审计：请求、引用和工具调用记录；管理员只读查询与敏感信息脱敏。
 
@@ -53,6 +53,11 @@ npm run dev
 | `DATABASE_URL` / `REDIS_URL` / `QDRANT_URL` | Compose 内部依赖连接地址         |
 | `MAX_UPLOAD_BYTES`                          | 单个文件上限，默认 10 MB         |
 | `RETRIEVAL_SCORE_THRESHOLD`                 | 检索最低相似度分数，默认 0.30    |
+| `HYBRID_SEARCH_ENABLED`                     | 是否启用 BM25 + 向量混合检索，默认 true |
+| `HYBRID_VECTOR_WEIGHT` / `HYBRID_BM25_WEIGHT` | 混合检索权重，默认 0.60 / 0.40       |
+| `BM25_CACHE_TTL_SECONDS` / `BM25_CACHE_MAX_USERS` / `BM25_CACHE_MAX_CHUNKS` | BM25 缓存 TTL / 最大用户数 / 单用户最大切片数，默认 60 / 100 / 10000 |
+
+当单个用户的已完成切片超过 `BM25_CACHE_MAX_CHUNKS` 时，为保护接口延迟，系统记录告警并临时降级为该用户的向量检索。
 
 完整模板见 `.env.example`；不要将 `.env` 或任何真实密钥提交到 Git。
 

@@ -19,8 +19,10 @@ flowchart TD
     CHAT --> HISTORY[最近 5 轮历史]
     HISTORY --> REWRITE[Query Rewrite]
     REWRITE --> INTENT[意图识别]
-    INTENT -->|知识库问答| RETRIEVE[Qdrant 检索：user_id 过滤]
-    RETRIEVE --> RAG[严格 RAG Prompt]
+    INTENT -->|知识库问答| RETRIEVE[混合检索：BM25 + Qdrant user_id 过滤]
+    RETRIEVE --> FUSE[分数融合]
+    FUSE --> RERANK[Rerank 重排序]
+    RERANK --> RAG[严格 RAG Prompt]
     INTENT -->|订单 / 物流 / 人工| TOOL[参数校验与工具调用]
     TOOL --> BIZ[(模拟订单、物流、工单)]
     TOOL --> SUMMARY[工具结果总结]
@@ -37,6 +39,6 @@ flowchart TD
 ## 安全边界
 
 - 所有业务 API 需要 `X-API-Key`；请求中的 `user_id` 必须与密钥所属用户一致。
-- 文档、会话、订单和向量检索均按用户归属隔离；Qdrant 检索始终附带 `user_id` 过滤。
+- 文档、会话、订单和混合检索均按用户归属隔离；BM25 查询限制用户文档，Qdrant 查询始终附带 `user_id` 过滤。
 - 管理员日志和工具记录接口额外校验 `admin` 角色，并对可能的密钥文本脱敏。
 - `.env`、上传原文件、虚拟环境和缓存均不进入 Git。
