@@ -54,27 +54,6 @@ const TOOL_STATUSES = new Set<ToolCallStatus>([
   'timeout',
 ])
 
-const request = async (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(
-    () => controller.abort(),
-    REQUEST_TIMEOUT_MS,
-  )
-  try {
-    return await fetch(input, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
-const asRecord = (value: unknown, error: string): Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null) throw new Error(error)
-  return value as Record<string, unknown>
-}
-
 const parseSources = (value: unknown): SourceCitation[] => {
   if (!Array.isArray(value)) throw new Error('Sources must be an array')
   return value.map((item) => {
@@ -149,11 +128,15 @@ export const createConversation = async (
   userId: string,
   title: string,
 ): Promise<CreateConversationResponse> => {
-  const response = await request('/api/v1/conversations', {
-    method: 'POST',
-    headers: apiHeaders(apiKey),
-    body: JSON.stringify({ user_id: userId, title }),
-  })
+  const response = await requestWithTimeout(
+    '/api/v1/conversations',
+    {
+      method: 'POST',
+      headers: apiHeaders(apiKey),
+      body: JSON.stringify({ user_id: userId, title }),
+    },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Conversation creation failed')
 
   const payload = asRecord(
@@ -178,11 +161,12 @@ export const getConversationMessages = async (
   apiKey: string,
   conversationId: string,
 ): Promise<ConversationMessage[]> => {
-  const response = await request(
+  const response = await requestWithTimeout(
     `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`,
     {
       headers: { 'X-API-Key': apiKey },
     },
+    REQUEST_TIMEOUT_MS,
   )
   if (!response.ok) throw new Error('Conversation history request failed')
 
@@ -202,15 +186,19 @@ export const sendChat = async (
   conversationId: string,
   query: string,
 ): Promise<ChatResponse> => {
-  const response = await request('/api/v1/chat', {
-    method: 'POST',
-    headers: apiHeaders(apiKey),
-    body: JSON.stringify({
-      user_id: userId,
-      conversation_id: conversationId,
-      query,
-    }),
-  })
+  const response = await requestWithTimeout(
+    '/api/v1/chat',
+    {
+      method: 'POST',
+      headers: apiHeaders(apiKey),
+      body: JSON.stringify({
+        user_id: userId,
+        conversation_id: conversationId,
+        query,
+      }),
+    },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Chat request failed')
 
   const payload = asRecord(
@@ -238,3 +226,4 @@ export const sendChat = async (
     latency_ms: payload.latency_ms,
   }
 }
+import { asRecord, requestWithTimeout } from './http'

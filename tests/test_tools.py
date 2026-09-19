@@ -14,10 +14,11 @@ from app.schemas import (
     QueryOrderArgs,
     ToolDecision,
     ToolErrorResult,
+    TransferHumanResult,
     TransferToHumanResult,
 )
 from app.services import chat as chat_service
-from app.services.chat import _explicit_order_id, _resolve_explicit_tool_intent
+from app.services.chat import _explicit_order_id, _history_order_id, _resolve_explicit_tool_intent
 from app.services.tools import query_logistics, query_order
 
 
@@ -117,8 +118,19 @@ def test_explicit_order_id_uses_only_values_present_in_the_query(
     assert _explicit_order_id(query) == expected
 
 
+def test_history_order_id_uses_a_prior_user_message_but_not_assistant_text() -> None:
+    history = [
+        ("user", "我的订单 12345 已发货了吗？"),
+        ("assistant", "订单 99999 正在运输中。"),
+    ]
+
+    assert _history_order_id(history) == "12345"
+
+
 class FakeDecisionLlm:
-    async def structured(self, _: str, __: object) -> ToolDecision:
+    async def structured(self, _: str, result_type: object) -> ToolDecision | TransferHumanResult:
+        if result_type is TransferHumanResult:
+            return TransferHumanResult(answer="已创建人工工单。", ticket_reason="用户需要人工客服")
         return ToolDecision(
             need_tool=True,
             tool_name="query_order",

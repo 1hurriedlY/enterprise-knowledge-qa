@@ -6,6 +6,7 @@ import pytest
 from fastapi import UploadFile
 
 from app.routers.files import _delete_uploaded_file, _save_upload
+from app.services import parsing
 from app.services.parsing import DocumentParseError, chunk_text, clean_text, parse_document
 
 
@@ -61,3 +62,28 @@ def test_delete_only_allows_file_under_upload_root(tmp_path: Path) -> None:
     _delete_uploaded_file(str(stored), settings)
 
     assert not stored.exists()
+
+
+def test_pdf_parser_removes_repeated_headers_and_footers_and_marks_headings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class FakePage:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+        def extract_text(self) -> str:
+            return self.content
+
+    class FakeReader:
+        pages = [
+            FakePage("企业服务手册\n退款政策\n退款将在 3-5 个工作日原路退回。\n第 1 页"),
+            FakePage("企业服务手册\n物流说明\n可在订单页查看物流状态。\n第 2 页"),
+        ]
+
+    monkeypatch.setattr(parsing, "PdfReader", lambda _: FakeReader())
+    result = parse_document(tmp_path / "guide.pdf", ".pdf")
+
+    assert "企业服务手册" not in result
+    assert "第 1 页" not in result
+    assert "# 退款政策" in result
+    assert "# 物流说明" in result

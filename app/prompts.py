@@ -10,6 +10,30 @@ INTENT_PROMPT_VERSION = "intent_v1"
 RAG_ANSWER_PROMPT_VERSION = "rag_answer_v1"
 TOOL_DECISION_PROMPT_VERSION = "tool_decision_v1"
 TOOL_SUMMARY_PROMPT_VERSION = "tool_summary_v1"
+TRANSFER_HUMAN_PROMPT_VERSION = "transfer_human_v1"
+EVALUATE_ANSWER_PROMPT_V1 = """Assess a RAG response using only the supplied data.
+Return JSON with correctness, source_correctness, hallucination, and completeness.
+Each score must be from 0 to 1; include a reason.
+Question: {question}
+Expected answer: {expected_answer}
+Expected source: {expected_source}
+Prediction: {prediction}
+Predicted sources: {predicted_sources}"""
+
+EVALUATE_TOOL_PROMPT_V1 = """Assess a tool decision using only the supplied data.
+Return JSON with tool_correct, arguments_correct (each 0 to 1), and reason.
+Question: {question}
+Expected tool: {expected_tool}
+Expected input: {expected_input}
+Predicted tool: {predicted_tool}
+Predicted input: {predicted_input}"""
+
+TRANSFER_HUMAN_PROMPT_V1 = """你是企业知识库智能客服助手。用户希望转接人工客服。
+请生成简洁、礼貌的转人工提示，并概括转人工原因。
+不要承诺具体处理时间，必须说明已创建人工工单。
+只返回 JSON：{{"answer":"...","ticket_reason":"..."}}
+历史对话：{history}
+用户问题：{query}"""
 
 SYSTEM_PROMPT_V1 = """你是一个企业知识库智能客服助手。
 

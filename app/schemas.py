@@ -206,6 +206,20 @@ class TransferHumanResult(StrictModel):
     ticket_reason: NonEmptyText
 
 
+class AnswerEvaluationResult(StrictModel):
+    correctness: float = Field(ge=0, le=1)
+    source_correctness: float = Field(ge=0, le=1)
+    hallucination: float = Field(ge=0, le=1)
+    completeness: float = Field(ge=0, le=1)
+    reason: str
+
+
+class ToolEvaluationResult(StrictModel):
+    tool_correct: float = Field(ge=0, le=1)
+    arguments_correct: float = Field(ge=0, le=1)
+    reason: str
+
+
 class QueryOrderArgs(StrictModel):
     order_id: OrderId
 

@@ -13,13 +13,13 @@ from starlette.responses import Response
 from app.bootstrap import seed_demo_identity
 from app.config import get_settings
 from app.database import SessionLocal, engine
-from app.models import RequestLog
 from app.routers.admin import router as admin_router
 from app.routers.chat import router as chat_router
 from app.routers.files import router as files_router
 from app.routers.users import router as users_router
 from app.schemas import HealthResponse
-from app.services.redaction import redact_text
+from app.services.audit import persist_request_audit
+from app.services.llm import LlmClient
 from app.services.vector_store import VectorStore
 
 settings = get_settings()
@@ -72,26 +72,16 @@ async def audit_request(request: Request, call_next: RequestResponseEndpoint) ->
         return response
     finally:
         if not getattr(request.state, "audit_logged", False):
-            try:
-                async with SessionLocal() as session:
-                    session.add(
-                        RequestLog(
-                            request_id=request.state.request_id,
-                            user_id=getattr(request.state, "user_id", None),
-                            path=request.url.path,
-                            method=request.method,
-                            query=redact_text(str(request.query_params)) or None,
-                            retrieved_chunks=[],
-                            tool_calls=[],
-                            latency_ms=int((time.perf_counter() - started) * 1000),
-                            status_code=response.status_code if response is not None else 500,
-                            error_message=None if response is not None else "请求处理失败",
-                        )
-                    )
-                    await session.commit()
-            except Exception:
-                # Audit failure must never hide the original business response.
-                pass
+            await persist_request_audit(
+                request_id=request.state.request_id,
+                user_id=getattr(request.state, "user_id", None),
+                path=request.url.path,
+                method=request.method,
+                query=str(request.query_params),
+                started=started,
+                status_code=response.status_code if response is not None else 500,
+                error_message=None if response is not None else "请求处理失败",
+            )
 
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
@@ -115,8 +105,7 @@ async def health() -> HealthResponse:
     except Exception:
         pass
 
-    llm_key = settings.llm_api_key.get_secret_value()
-    llm_ok = bool(llm_key and llm_key != "replace-me")
+    llm_ok = await LlmClient().health()
     app_status: Literal["ok", "degraded"] = (
         "ok" if all((database_ok, vector_ok, redis_ok, llm_ok)) else "degraded"
     )

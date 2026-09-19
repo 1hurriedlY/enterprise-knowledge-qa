@@ -11,6 +11,7 @@ from app.prompts import (
     RAG_ANSWER_PROMPT_VERSION,
     SYSTEM_PROMPT_VERSION,
     TOOL_DECISION_PROMPT_V1,
+    TRANSFER_HUMAN_PROMPT_VERSION,
 )
 from app.schemas import RagAnswerResult
 from app.services.chat import INJECTION_REPLY, SENSITIVE_REPLY, _preclassified_reply
@@ -74,3 +75,7 @@ def test_rag_result_accepts_empty_citations_for_no_answer() -> None:
         need_human=True,
     )
     assert result.citations == []
+
+
+def test_transfer_prompt_has_a_version() -> None:
+    assert TRANSFER_HUMAN_PROMPT_VERSION == "transfer_human_v1"

@@ -53,27 +53,6 @@ const TOOL_STATUSES = new Set<ToolCallStatus>([
   'timeout',
 ])
 
-const request = async (path: string, apiKey: string): Promise<Response> => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(
-    () => controller.abort(),
-    REQUEST_TIMEOUT_MS,
-  )
-  try {
-    return await fetch(path, {
-      headers: { 'X-API-Key': apiKey },
-      signal: controller.signal,
-    })
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
-const asRecord = (value: unknown, error: string): Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null) throw new Error(error)
-  return value as Record<string, unknown>
-}
-
 const parseList = (payload: unknown, property: string): unknown[] => {
   const record = asRecord(payload, 'Response must be an object')
   const items = record[property]
@@ -179,7 +158,11 @@ const parseMessage = (value: unknown): AdminMessage => {
 }
 
 export const getRequestLogs = async (apiKey: string): Promise<RequestLog[]> => {
-  const response = await request('/api/v1/admin/logs?limit=50', apiKey)
+  const response = await requestWithTimeout(
+    '/api/v1/admin/logs?limit=50',
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Request log request failed')
   return parseList(await response.json(), 'logs').map(parseRequestLog)
 }
@@ -187,7 +170,11 @@ export const getRequestLogs = async (apiKey: string): Promise<RequestLog[]> => {
 export const getToolCalls = async (
   apiKey: string,
 ): Promise<ToolCallRecord[]> => {
-  const response = await request('/api/v1/admin/tool-calls?limit=50', apiKey)
+  const response = await requestWithTimeout(
+    '/api/v1/admin/tool-calls?limit=50',
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Tool call request failed')
   return parseList(await response.json(), 'tool_calls').map(parseToolCall)
 }
@@ -195,7 +182,11 @@ export const getToolCalls = async (
 export const getAdminConversations = async (
   apiKey: string,
 ): Promise<AdminConversation[]> => {
-  const response = await request('/api/v1/admin/conversations?limit=50', apiKey)
+  const response = await requestWithTimeout(
+    '/api/v1/admin/conversations?limit=50',
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Conversation request failed')
   return parseList(await response.json(), 'conversations').map(
     parseConversation,
@@ -206,10 +197,12 @@ export const getAdminMessages = async (
   apiKey: string,
   conversationId: string,
 ): Promise<AdminMessage[]> => {
-  const response = await request(
+  const response = await requestWithTimeout(
     `/api/v1/admin/conversations/${encodeURIComponent(conversationId)}/messages`,
-    apiKey,
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
   )
   if (!response.ok) throw new Error('Message request failed')
   return parseList(await response.json(), 'messages').map(parseMessage)
 }
+import { asRecord, requestWithTimeout } from './http'

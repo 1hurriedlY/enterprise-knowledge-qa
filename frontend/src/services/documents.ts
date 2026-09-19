@@ -27,27 +27,12 @@ const isDocumentStatus = (value: unknown): value is DocumentStatus =>
   value === 'failed' ||
   value === 'deleted'
 
-const request = async (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<Response> => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    return await fetch(input, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
 const parseCurrentUser = (payload: unknown): CurrentUserResponse => {
   if (typeof payload !== 'object' || payload === null) {
     throw new Error('Current user response must be an object')
   }
 
-  const value = payload as Record<string, unknown>
+  const value = asRecord(payload, 'Current user response must be an object')
   if (
     typeof value.user_id !== 'string' ||
     typeof value.name !== 'string' ||
@@ -106,9 +91,11 @@ const parseDocuments = (payload: unknown): DocumentListItem[] => {
 export const getCurrentUser = async (
   apiKey: string,
 ): Promise<CurrentUserResponse> => {
-  const response = await request('/api/v1/users/me', {
-    headers: { 'X-API-Key': apiKey },
-  })
+  const response = await requestWithTimeout(
+    '/api/v1/users/me',
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Current user request failed')
   return parseCurrentUser(await response.json())
 }
@@ -116,9 +103,11 @@ export const getCurrentUser = async (
 export const listDocuments = async (
   apiKey: string,
 ): Promise<DocumentListItem[]> => {
-  const response = await request('/api/v1/files', {
-    headers: { 'X-API-Key': apiKey },
-  })
+  const response = await requestWithTimeout(
+    '/api/v1/files',
+    { headers: { 'X-API-Key': apiKey } },
+    REQUEST_TIMEOUT_MS,
+  )
   if (!response.ok) throw new Error('Document list request failed')
   return parseDocuments(await response.json())
 }
@@ -131,7 +120,7 @@ export const uploadDocument = async (
   const form = new FormData()
   form.append('user_id', userId)
   form.append('file', file)
-  const response = await request(
+  const response = await requestWithTimeout(
     '/api/v1/files/upload',
     {
       method: 'POST',
@@ -147,12 +136,14 @@ export const deleteDocument = async (
   apiKey: string,
   documentId: string,
 ): Promise<void> => {
-  const response = await request(
+  const response = await requestWithTimeout(
     `/api/v1/files/${encodeURIComponent(documentId)}`,
     {
       method: 'DELETE',
       headers: { 'X-API-Key': apiKey },
     },
+    REQUEST_TIMEOUT_MS,
   )
   if (!response.ok) throw new Error('Document delete request failed')
 }
+import { asRecord, requestWithTimeout } from './http'

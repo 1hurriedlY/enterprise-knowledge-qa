@@ -29,10 +29,48 @@ def parse_document(path: Path, file_type: str) -> str:
             raise DocumentParseError("文件编码必须为 UTF-8") from exc
     if file_type == ".pdf":
         try:
-            return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+            pages = [page.extract_text() or "" for page in PdfReader(path).pages]
+            return _normalize_pdf_pages(pages)
         except Exception as exc:  # pypdf exposes multiple parser exceptions
             raise DocumentParseError("PDF 正文无法解析") from exc
     raise DocumentParseError("不支持的文件类型")
+
+
+def _normalize_pdf_pages(pages: list[str]) -> str:
+    """Remove repeated PDF page furniture and preserve likely section titles."""
+    page_lines = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
+    repeated_edges: set[str] = set()
+    for position in (0, -1):
+        counts: dict[str, int] = {}
+        for lines in page_lines:
+            if lines:
+                value = lines[position]
+                counts[value] = counts.get(value, 0) + 1
+        repeated_edges.update(value for value, count in counts.items() if count >= 2)
+
+    normalized_pages: list[str] = []
+    for lines in page_lines:
+        content = [
+            line for line in lines if line not in repeated_edges and not _is_page_number(line)
+        ]
+        normalized: list[str] = []
+        for index, line in enumerate(content):
+            next_line = content[index + 1] if index + 1 < len(content) else ""
+            normalized.append(f"# {line}" if _is_pdf_heading(line, next_line) else line)
+        if normalized:
+            normalized_pages.append("\n\n".join(normalized))
+    return "\n\n".join(normalized_pages)
+
+
+def _is_page_number(line: str) -> bool:
+    return bool(re.fullmatch(r"(?:第\s*)?\d+\s*(?:页)?", line, flags=re.IGNORECASE))
+
+
+def _is_pdf_heading(line: str, next_line: str) -> bool:
+    if len(line) > 80 or not line or line.endswith(("。", "！", ".", ";", "；")):
+        return False
+    numbered = bool(re.match(r"^(?:\d+(?:\.\d+)*|第[一二三四五六七八九十]+[章节])", line))
+    return numbered or (bool(next_line) and len(line) <= 24)
 
 
 def clean_text(text: str) -> str:

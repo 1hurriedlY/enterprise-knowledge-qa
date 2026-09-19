@@ -21,6 +21,8 @@ from app.prompts import (
     TOOL_DECISION_PROMPT_V1,
     TOOL_SUMMARY_PROMPT_V1,
     TOOL_SUMMARY_PROMPT_VERSION,
+    TRANSFER_HUMAN_PROMPT_V1,
+    TRANSFER_HUMAN_PROMPT_VERSION,
 )
 from app.schemas import (
     ChatResponse,
@@ -35,6 +37,7 @@ from app.schemas import (
     ToolCallSummary,
     ToolDecision,
     ToolErrorResult,
+    TransferHumanResult,
     TransferToHumanArgs,
     TransferToHumanResult,
 )
@@ -102,6 +105,16 @@ def _explicit_order_id(query: str) -> str | None:
         return labeled.group(1)
     numeric = re.search(r"(?<!\d)(\d{3,80})(?!\d)", query)
     return numeric.group(1) if numeric is not None else None
+
+
+def _history_order_id(history: list[tuple[str, str]]) -> str | None:
+    """Find an explicit order number from prior user turns, newest first."""
+    for role, content in reversed(history):
+        if role == MessageRole.USER.value:
+            order_id = _explicit_order_id(content)
+            if order_id is not None:
+                return order_id
+    return None
 
 
 async def _history(session: AsyncSession, conversation_id: uuid.UUID) -> list[tuple[str, str]]:
@@ -208,9 +221,13 @@ async def _tool_answer(
     history: list[tuple[str, str]],
     intent: Intent,
     llm: LlmClient,
+    rewritten_query: str | None = None,
 ) -> tuple[str, bool, list[ToolCallSummary]]:
     decision = await llm.structured(
-        TOOL_DECISION_PROMPT_V1.format(query=query, history=render_history(history)), ToolDecision
+        TOOL_DECISION_PROMPT_V1.format(
+            query=rewritten_query or query, history=render_history(history)
+        ),
+        ToolDecision,
     )
     expected = {
         Intent.ORDER_QUERY: "query_order",
@@ -218,16 +235,23 @@ async def _tool_answer(
         Intent.TRANSFER_HUMAN: "transfer_to_human",
     }[intent]
     arguments = dict(decision.arguments)
+    transfer_answer: str | None = None
     if expected in {"query_order", "query_logistics"}:
-        order_id = _explicit_order_id(query)
+        order_id = _explicit_order_id(query) or _history_order_id(history)
         if order_id is None:
             return "请提供您的订单号，我会为您查询相关信息。", False, []
-        # Do not trust an order number invented by the model. In this first
-        # version, an order lookup is permitted only for an ID explicit in the
-        # current user message.
+        # Model output never authorizes an order lookup: use only current or
+        # prior user messages in this same conversation.
         arguments["order_id"] = order_id
     if expected == "transfer_to_human":
-        arguments = {"reason": arguments.get("reason") or query, "conversation_id": conversation_id}
+        transfer = await llm.structured(
+            TRANSFER_HUMAN_PROMPT_V1.format(
+                query=rewritten_query or query, history=render_history(history)
+            ),
+            TransferHumanResult,
+        )
+        transfer_answer = transfer.answer
+        arguments = {"reason": transfer.ticket_reason, "conversation_id": conversation_id}
 
     started = time.perf_counter()
 
@@ -275,6 +299,8 @@ async def _tool_answer(
             result.model_dump(mode="json"), call_status, error_message
         )
         if expected == "transfer_to_human" and not isinstance(result, ToolErrorResult):
+            if transfer_answer is not None:
+                return transfer_answer, True, [summary]
             return "已为您创建人工客服工单，客服人员会尽快与您联系。", True, [summary]
         if isinstance(result, ToolErrorResult):
             return "抱歉，没有查询到相关信息，请核对订单号或联系人工客服。", False, [summary]
@@ -354,14 +380,26 @@ async def answer_chat(
                 answer = SENSITIVE_REPLY if intent == Intent.SENSITIVE else IRRELEVANT_REPLY
             elif intent in {Intent.ORDER_QUERY, Intent.LOGISTICS_QUERY, Intent.TRANSFER_HUMAN}:
                 answer, need_human, tool_summaries = await _tool_answer(
-                    session, user, conversation_id, user_message.id, query, history, intent, llm
+                    session,
+                    user,
+                    conversation_id,
+                    user_message.id,
+                    query,
+                    history,
+                    intent,
+                    llm,
+                    rewritten,
                 )
                 assistant_message = Message(
                     conversation_id=conversation_id,
                     role=MessageRole.ASSISTANT,
                     content=answer,
                     sources=[],
-                    prompt_version=TOOL_SUMMARY_PROMPT_VERSION,
+                    prompt_version=(
+                        TRANSFER_HUMAN_PROMPT_VERSION
+                        if intent == Intent.TRANSFER_HUMAN
+                        else TOOL_SUMMARY_PROMPT_VERSION
+                    ),
                 )
                 session.add(assistant_message)
                 await _save_log(

@@ -19,7 +19,7 @@ const parseHealthResponse = (payload: unknown): HealthResponse => {
     throw new Error('Health response must be an object')
   }
 
-  const value = payload as Record<string, unknown>
+  const value = asRecord(payload, 'Health response must be an object')
   if (
     (value.status !== 'ok' && value.status !== 'degraded') ||
     value.app !== 'ok' ||
@@ -41,22 +41,12 @@ const parseHealthResponse = (payload: unknown): HealthResponse => {
   }
 }
 
-const request = async (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)
-
-  try {
-    return await fetch(input, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
 export const getHealth = async (): Promise<HealthResponse> => {
-  const response = await request('/health')
+  const response = await requestWithTimeout(
+    '/health',
+    undefined,
+    HEALTH_TIMEOUT_MS,
+  )
   if (!response.ok) {
     throw new Error('Health request failed')
   }
@@ -65,10 +55,13 @@ export const getHealth = async (): Promise<HealthResponse> => {
 }
 
 export const verifyApiKey = async (apiKey: string): Promise<void> => {
-  const response = await request('/api/v1/files', {
-    headers: { 'X-API-Key': apiKey },
-  })
+  const response = await requestWithTimeout(
+    '/api/v1/files',
+    { headers: { 'X-API-Key': apiKey } },
+    HEALTH_TIMEOUT_MS,
+  )
   if (!response.ok) {
     throw new Error('API key verification failed')
   }
 }
+import { asRecord, requestWithTimeout } from './http'

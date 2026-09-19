@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     retrieval_score_threshold: float = Field(default=0.30, ge=0, le=1)
     tool_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    llm_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    vector_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    external_max_retries: int = Field(default=2, ge=0, le=3)
 
 
 @lru_cache

@@ -1,6 +1,8 @@
+import asyncio
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -20,26 +22,46 @@ class VectorPoint:
 class VectorStore:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.client = AsyncQdrantClient(url=str(self.settings.qdrant_url))
+        self.client = AsyncQdrantClient(
+            url=str(self.settings.qdrant_url), timeout=int(self.settings.vector_timeout_seconds)
+        )
+
+    async def _request(self, operation: Callable[[], Awaitable[Any]]) -> Any:
+        """Run a vector-store operation with bounded retries and timeout."""
+        retries = self.settings.external_max_retries
+        for attempt in range(retries + 1):
+            try:
+                return await asyncio.wait_for(
+                    operation(), timeout=self.settings.vector_timeout_seconds
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if attempt == retries:
+                    raise
+                await asyncio.sleep(0.1 * (attempt + 1))
+        raise AssertionError("unreachable")
 
     async def ensure_collection(self) -> None:
-        if not await self.client.collection_exists(self.settings.qdrant_collection):
-            await self.client.create_collection(
+        if not await self._request(
+            lambda: self.client.collection_exists(self.settings.qdrant_collection)
+        ):
+            await self._request(lambda: self.client.create_collection(
                 collection_name=self.settings.qdrant_collection,
                 vectors_config=models.VectorParams(
                     size=self.settings.embedding_dimension, distance=models.Distance.COSINE
                 ),
-            )
-            await self.client.create_payload_index(
+            ))
+            await self._request(lambda: self.client.create_payload_index(
                 self.settings.qdrant_collection,
                 field_name="user_id",
                 field_schema=models.PayloadSchemaType.KEYWORD,
-            )
-            await self.client.create_payload_index(
+            ))
+            await self._request(lambda: self.client.create_payload_index(
                 self.settings.qdrant_collection,
                 field_name="document_id",
                 field_schema=models.PayloadSchemaType.KEYWORD,
-            )
+            ))
 
     async def upsert_chunk(
         self,
@@ -67,7 +89,7 @@ class VectorStore:
         if not points:
             return
         await self.ensure_collection()
-        await self.client.upsert(
+        await self._request(lambda: self.client.upsert(
             collection_name=self.settings.qdrant_collection,
             points=[
                 models.PointStruct(
@@ -84,14 +106,14 @@ class VectorStore:
                 for point in points
             ],
             wait=True,
-        )
+        ))
 
     async def search(
         self, user_id: uuid.UUID, vector: list[float], limit: int = 10
     ) -> list[tuple[uuid.UUID, float]]:
         await self.ensure_collection()
         limit = min(max(limit, 1), 10)
-        result = await self.client.query_points(
+        result = await self._request(lambda: self.client.query_points(
             collection_name=self.settings.qdrant_collection,
             query=vector,
             query_filter=models.Filter(
@@ -103,7 +125,7 @@ class VectorStore:
             ),
             limit=limit,
             with_payload=True,
-        )
+        ))
         return [
             (uuid.UUID(str(point.payload["chunk_id"])), float(point.score))
             for point in result.points
@@ -112,15 +134,15 @@ class VectorStore:
 
     async def delete_points(self, point_ids: Sequence[int | str | uuid.UUID]) -> None:
         if point_ids:
-            await self.client.delete(
+            await self._request(lambda: self.client.delete(
                 collection_name=self.settings.qdrant_collection,
                 points_selector=models.PointIdsList(points=list(point_ids)),
                 wait=True,
-            )
+            ))
 
     async def health(self) -> bool:
         try:
-            await self.client.get_collections()
+            await self._request(self.client.get_collections)
         except Exception:
             return False
         return True
